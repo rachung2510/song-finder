@@ -4,4 +4,3 @@ openai
 pypinyin
 rapidfuzz
 python-dotenv
-scipy

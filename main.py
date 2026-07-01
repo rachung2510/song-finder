@@ -56,26 +56,6 @@ def best_window_score(query_py, lyrics_py, size=50, step=10):
 	return score / 100
 
 
-def match_zoom_to_sq(d):
-	files = sorted(os.listdir(f"{root}/{d}"))
-	zoom_files = {f: os.path.getsize(f"{root}/{d}/{f}") for f in files if f.startswith("ZOOM")}
-	other_files = {f: os.path.getsize(f"{root}/{d}/{f}") for f in files if not f.startswith("ZOOM")}
-	if not zoom_files:
-		return {}
-	zoom_items = list(zoom_files.items())
-	other_items = list(other_files.items())
-	cost = np.array([
-		[abs(z_size - o_size) for _, o_size in other_items]
-		for _, z_size in zoom_items
-	])
-	rows, cols = linear_sum_assignment(cost)
-	matches = {
-		zoom_items[r][0]: other_items[c][0]
-		for r, c in zip(rows, cols)
-	}
-	return matches
-
-
 def get_duration(filepath):
 	duration = float(subprocess.check_output([
 		"ffprobe",
@@ -85,6 +65,78 @@ def get_duration(filepath):
 		filepath,
 	]).decode().strip())
 	return duration
+
+
+def match_zoom_to_sq(d, tol=10):
+    files = sorted(os.listdir(f"{root}/{d}"))
+    zoom_files = [f for f in files if strip_prefix(f).startswith("ZOOM")]
+    sq_files = [f for f in files if not strip_prefix(f).startswith("ZOOM")]
+    
+    if not zoom_files or not sq_files:
+        return {}
+
+    durations = {f: int(get_duration(f"{root}/{d}/{f}")) for f in files}
+
+    reduced_sq_files = []
+    for f in sq_files:
+        other_files = [x for x in reduced_sq_files if not strip_prefix(x).startswith("SQ")]
+        if strip_prefix(f).startswith("SQ") or not any(durations[f] == durations[x] for x in other_files):
+            reduced_sq_files.append(f)
+    sq_files = reduced_sq_files
+
+    # If same number of files, just pair in order
+    if len(zoom_files) == len(sq_files):
+        ordered_matches = dict(zip(zoom_files, sq_files))
+        # Make sure the sizes match though
+        if all(abs(durations[z] - durations[s]) < tol for z, s in ordered_matches.items()):
+            return ordered_matches
+
+    # Otherwise, take the largest filesize (P&W) pair as reference
+    matches = {}
+
+    def traverse(ref_zoom_idx, ref_sq_idx, zoom_list, sq_list):
+        z_idx = ref_zoom_idx + 1
+        s_idx = ref_sq_idx + 1
+        while z_idx < len(zoom_list) and s_idx < len(sq_list):
+            zoom_file = zoom_list[z_idx]
+            for i, sq_file in enumerate(sq_list):
+                if strip_prefix(sq_file).startswith("SQ") and i < s_idx:
+                    continue
+                if abs(durations[zoom_file] - durations[sq_file]) > tol:
+                    continue
+                matches[zoom_file] = sq_file
+                if strip_prefix(sq_file).startswith("SQ"):
+                    s_idx = i + 1
+                break
+            z_idx += 1
+
+    def prune_same_values(d):
+        counts = {v: len([k for k in d if d[k] == v]) for v in d.values()}
+        return {k: v for k, v in d.items() if counts[v] == 1}
+
+    largest_zoom_file = max(zoom_files, key=lambda f: durations[f])
+    largest_sq_file = max(sq_files, key=lambda f: durations[f])
+    if not strip_prefix(largest_sq_file).startswith("SQ"):
+        # since order can't be gleaned from filename, just traverse the whole list
+        traverse(-1, -1, zoom_files, sq_files)
+        return prune_same_values(matches)
+
+    if abs(durations[largest_zoom_file] - durations[largest_sq_file]) <= tol:
+        matches[largest_zoom_file] = largest_sq_file
+        zoom_idx = zoom_files.index(largest_zoom_file)
+        sq_idx = sq_files.index(largest_sq_file)
+    else:
+        cost = np.array([
+            [abs(durations[z] - durations[s]) for s in sq_files]
+            for z in zoom_files
+        ])
+        zoom_idx, sq_idx = np.unravel_index(np.argmin(cost), cost.shape)
+        matches[zoom_files[zoom_idx]] = sq_files[sq_idx]
+
+    traverse(zoom_idx, sq_idx, zoom_files, sq_files)
+    traverse(len(zoom_files) - zoom_idx - 1, len(sq_files) - sq_idx - 1, zoom_files[::-1], sq_files[::-1])
+
+    return prune_same_values(matches)
 
 
 def split_to_limit(filepath, limit=26_214_400, margin=0.90, out_dir="tmp"):
@@ -184,7 +236,7 @@ def main(prefix):
 			sq_titles = file_to_titles.get(sq_file, [])
 			titles = sq_titles or get_titles(f"{root}/{d}/{zoom_file}")
 			file_to_titles[zoom_file] = titles
-			if not sq_titles and titles:
+			if sq_file and not sq_titles and titles:
 				file_to_titles[sq_file] = titles
 		for f, title in file_to_titles.items():
 			filename, ext = os.path.splitext(f)
