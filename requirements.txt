@@ -1,0 +1,8 @@
+numpy
+pandas
+openai
+pypinyin
+rapidfuzz
+python-dotenv
+mutagen
+scipy
