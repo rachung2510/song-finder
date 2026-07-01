@@ -1,24 +1,22 @@
 import os
+import math
+from uuid import uuid4 as uuid
+import subprocess
+import re
+from tqdm import tqdm
+
 from openai import OpenAI
 import pandas as pd
 import numpy as np
-import re
 from pypinyin import lazy_pinyin
 from rapidfuzz import fuzz
-from mutagen.mp3 import MP3
-import math
-from uuid import uuid4 as uuid
 from scipy.optimize import linear_sum_assignment
 from dotenv import load_dotenv
-from pydub import AudioSegment
-import subprocess
 load_dotenv(".env", override=True)
 
 root = "/mnt/NextcloudSacmData/sacm.av/files/Recordings"
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-df = pd.read_pickle("song_embeddings_large_chunked.pkl")
-embeddings = np.vstack(df["embedding"].values).astype(np.float32)
-embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
+df = pd.read_csv("songs.csv")
 
 def get_embedding(text):
 	text = re.sub(r"[，。！？、“”：；\n]", " ", text)
@@ -39,16 +37,23 @@ def log_score(x, k=0.1):
 	return math.log(1 + k*x) / math.log(1 + 100*k)
 
 
-def best_window_score(query_py, lyrics_py, size=100, step=20):
-	lyric_tokens = lyrics_py.split()
-	def windows(tokens):
-		for i in range(0, max(1, len(tokens) - size + 1), step):
+def windows(tokens, size, step):
+	if len(tokens) <= size:
+		yield " ".join(tokens)
+	else:
+		for i in range(0, len(tokens) - size + 1, step):
 			yield " ".join(tokens[i:i+size])
-	return log_score(max(fuzz.ratio(query_py, w) for w in windows(lyric_tokens)))
 
 
-def weighted_avg(a, b, alpha=0.5, beta=0.5):
-	return (a * alpha + b * beta) / 2
+def best_window_score(query_py, lyrics_py, size=50, step=10):
+	query_tokens = query_py.split()
+	lyric_tokens = lyrics_py.split()
+	score = max(
+		fuzz.ratio(qw, lw)
+		for qw in windows(query_tokens, size, step)
+		for lw in windows(lyric_tokens, size, step)
+	)
+	return score / 100
 
 
 def match_zoom_to_sq(d):
@@ -71,80 +76,96 @@ def match_zoom_to_sq(d):
 	return matches
 
 
-def crop_to_limit(filepath, limit=26_214_400, margin=0.90):
-	"""Return a path to an audio file <= `limit` bytes for Whisper's 25 MiB cap.
+def get_duration(filepath):
+	duration = float(subprocess.check_output([
+		"ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		filepath,
+	]).decode().strip())
+	return duration
 
-	If the file is already under the limit it's returned unchanged. Otherwise a
-	centered segment (head/tail dropped evenly) is exported near the original
-	bitrate so the result lands just under the cap.
-	"""
+
+def split_to_limit(filepath, limit=26_214_400, margin=0.90, out_dir="tmp"):
 	size = os.path.getsize(filepath)
 	if size <= limit:
-		return None
-
-	audio = AudioSegment.from_file(filepath)
-	dur_ms = len(audio)
-	keep_ms = int(dur_ms * (limit / size) * margin)   # fraction of runtime that fits
-	start = max(0, (dur_ms - keep_ms) // 2)			   # center the crop
-	cropped = audio[start:start + keep_ms]
-
-	bitrate_kbps = int(size * 8 / (dur_ms / 1000) / 1000)
-	crop_path = f"tmp/{uuid()}.mp3"
-	cropped.export(crop_path, format="mp3", bitrate=f"{bitrate_kbps}k")
-	print(f"cropped {size:,} → {os.path.getsize(crop_path):,} bytes (limit {limit:,}) → {crop_path}")
-	del cropped, audio
-	return crop_path
+		return [filepath]
+	os.makedirs(out_dir, exist_ok=True)
+	duration = get_duration(filepath)
+	bitrate_kbps = 128
+	chunk_seconds = max(1, int(limit * margin * 8 / (bitrate_kbps * 1000)))
+	chunk_paths = []
+	
+	for start in range(0, math.ceil(duration), chunk_seconds):
+		chunk_path = os.path.join(out_dir, f"{uuid()}.mp3")
+		subprocess.run([
+			"ffmpeg",
+			"-y",
+			"-ss", str(start),
+			"-t", str(chunk_seconds),
+			"-i", filepath,
+			"-vn",
+			"-c:a", "libmp3lame",
+			"-b:a", f"{bitrate_kbps}k",
+			chunk_path,
+		], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+		chunk_paths.append(chunk_path)
+		print(
+			f"chunk {len(chunk_paths)}: "
+			f"{os.path.getsize(chunk_path):,} bytes "
+			f"(limit {limit:,}) -> {chunk_path}"
+		)
+	return chunk_paths
 
 
 def get_titles(filepath):
 	print(f"Processing {filepath}")
-	duration = MP3(filepath).info.length
-	if duration < 60:  # probably noise
-		return []
-	if duration > 24 * 60:  # too long
+
+	cropped_paths = split_to_limit(filepath)
+	lyrics = ""
+	for filepath in tqdm(cropped_paths):
+		audio_file = open(filepath, "rb")
+		transcription = client.audio.transcriptions.create(
+			model="whisper-1", 
+			file=audio_file,
+			language="zh",
+		)
+		lyrics += transcription.text
+
+	if not lyrics:
 		return []
 
-	cropped = crop_to_limit(filepath)
-	audio_file = open(cropped or filepath, "rb")
-	transcription = client.audio.transcriptions.create(
-		model="whisper-1", 
-		file=audio_file,
-		language="zh",	
-	)
-	lyrics = transcription.text
 	titles = {}
-	if cropped:
-		os.remove(cropped)
+	title_to_last_chunk_idx = {}
 
 	query_lyrics = re.sub(r"[，。！、\n]", " ", lyrics)
 
 	chunk_size = 120
-	for start in range(0, len(query_lyrics), chunk_size):
+	for i, start in enumerate(range(0, len(query_lyrics), chunk_size)):
 		chunk = query_lyrics[start:start + chunk_size]
 		if len(chunk) < 50:
 			continue
-		query_embedding = get_embedding(chunk)
-		query_embedding /= np.linalg.norm(query_embedding)
-		scores = embeddings @ query_embedding
-		scores = [weighted_avg(
-			score, best_window_score(pinyin(chunk), df.pinyin[i], size=chunk_size, step=chunk_size//4),
-			alpha=0.3, beta=0.7,
-		) for i, score in enumerate(scores)]
+		query_py = pinyin(chunk)
+		scores = [best_window_score(query_py, lyric_py, size=min(len(chunk), 100), step=5) for lyric_py in df.pinyin]
 		best_idx = np.argmax(scores)
 		best_title = df.iloc[best_idx]["title"]
 		best_score = scores[best_idx]
-		# print(f"[{start}:{start+chunk_size}] {best_title=}, {best_score=}")
-		if best_title in titles:
+		print(f"[{start}:{start+chunk_size}] {best_title=}, {best_score=}")
+		if best_title in titles and (i - title_to_last_chunk_idx.get(best_title, -5)) <= 2:
 			titles[best_title] = max(titles[best_title], best_score) * 1.2
 		else:
 			titles[best_title] = best_score
+		title_to_last_chunk_idx[best_title] = i
 
 	print(f"{titles=}")
-	if duration > 5 * 60:
-		final_titles = [title for title, score in titles.items() if score > 0.4]
+	duration = get_duration(filepath)
+	if duration > 3 * 60:
+		final_titles = [title for title, score in titles.items() if score > 0.7]
 	else:
 		best_title = max(titles, key=titles.get)
-		final_titles = [best_title] if titles[best_title] > 0.4 else []
+		final_titles = [best_title] if titles[best_title] > 0.7 else []
+	print(f"Songs: {'_'.join(final_titles)}")
 	return final_titles
 
 
