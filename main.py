@@ -37,6 +37,11 @@ def log_score(x, k=0.1):
 	return math.log(1 + k*x) / math.log(1 + 100*k)
 
 
+def strip_prefix(s):
+	"""'(SUN) ZOOM0160.mp3' → 'ZOOM0160.mp3'."""
+	return re.sub(r'^\([^)]*\)\s*', '', s)
+
+
 def windows(tokens, size, step):
 	if len(tokens) <= size:
 		yield " ".join(tokens)
@@ -172,7 +177,9 @@ def split_to_limit(filepath, limit=26_214_400, margin=0.90, out_dir="tmp"):
 
 
 def get_titles(filepath):
-	print(f"Processing {filepath}")
+	duration = get_duration(filepath)
+	mins, secs = int(duration // 60), int(duration % 60)
+	print(f"Processing {filepath} ({mins:02d}:{secs:02d})")
 
 	cropped_paths = split_to_limit(filepath)
 	lyrics = ""
@@ -210,7 +217,6 @@ def get_titles(filepath):
 		title_to_last_chunk_idx[best_title] = i
 
 	print(f"{titles=}")
-	duration = get_duration(filepath)
 	if duration > 3 * 60:
 		final_titles = [title for title, score in titles.items() if score > 0.7]
 	else:
@@ -224,12 +230,13 @@ def main(prefix):
 	for d in sorted(os.listdir(root)):
 		if not d.startswith(prefix):
 			continue
+		print(f">>>>>>>>>> Processing {d}")
 		files = sorted(os.listdir(f"{root}/{d}"))
 		if any(bool(re.search(r'[\u4e00-\u9fff]', f)) for f in files):	# already renamed
 			continue
 		zoom_to_sq = match_zoom_to_sq(d)
-		zoom_files = [f for f in files if f.startswith("ZOOM")]
-		sq_files = [f for f in files if not f.startswith("ZOOM")]
+		zoom_files = [f for f in files if strip_prefix(f).startswith("ZOOM")]
+		sq_files = [f for f in files if not strip_prefix(f).startswith("ZOOM")]
 		file_to_titles = {f: get_titles(f"{root}/{d}/{f}") for f in sq_files}
 		for zoom_file in zoom_files:
 			sq_file = zoom_to_sq.get(zoom_file)
@@ -240,7 +247,7 @@ def main(prefix):
 				file_to_titles[sq_file] = titles
 		for f, title in file_to_titles.items():
 			filename, ext = os.path.splitext(f)
-			new_filepath = f"{filename}_{'_'.join(title)}{ext}" if title else f"{filename}{ext}"
+			new_filepath = f"{strip_prefix(filename)}_{'_'.join(title)}{ext}" if title else f"{filename}{ext}"
 			print(f"{f}→{new_filepath}")
 			if f != new_filepath:
 				os.rename(f"{root}/{d}/{f}", f"{root}/{d}/{new_filepath}")
