@@ -183,10 +183,12 @@ def get_titles(filepath):
 
     cropped_paths = split_to_limit(filepath)
     lyrics = ""
-    for filepath in tqdm(cropped_paths):
-        audio_file = open(filepath, "rb")
+    for path in tqdm(cropped_paths):
+        if get_duration(path) < 10:
+            continue
+        audio_file = open(path, "rb")
         transcription = client.audio.transcriptions.create(
-            model="whisper-1", 
+            model="gpt-4o-transcribe",
             file=audio_file,
             language="zh",
         )
@@ -232,7 +234,7 @@ def main(prefix):
             continue
         print(f">>>>>>>>>> Processing {d}")
         files = sorted(os.listdir(f"{root}/{d}"))
-        if any(bool(re.search(r'[\u4e00-\u9fff]', f)) for f in files):	# already renamed
+        if any(bool(re.search(r'[\u4e00-\u9fff]', f)) for f in files):  # already renamed
             continue
         zoom_to_sq = match_zoom_to_sq(d)
         zoom_files = [f for f in files if strip_prefix(f).startswith("ZOOM")]
