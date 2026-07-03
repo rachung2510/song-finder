@@ -11,11 +11,11 @@ import numpy as np
 from pypinyin import lazy_pinyin
 from rapidfuzz import fuzz
 from dotenv import load_dotenv
-load_dotenv(os.path.join(__file__, "..", ".env"), override=True)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"), override=True)
 
 root = "/mnt/NextcloudSacmData"
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-df = pd.read_csv(os.path.join(__file__, "songs.csv"))
+df = pd.read_csv(os.path.join(os.path.dirname(__file__), "songs.csv"))
 
 def get_embedding(text):
     text = re.sub(r"[，。！？、“”：；\n]", " ", text)
@@ -253,7 +253,7 @@ def get_titles(filepath):
 
 
 def run(folder):
-    files = sorted(os.listdir(f"{folder}"))
+    files = sorted(os.listdir(folder))
     if any(bool(re.search(r'[\u4e00-\u9fff]', f)) for f in files):  # already renamed
         return
     zoom_to_sq = match_zoom_to_sq(folder)
@@ -274,7 +274,7 @@ def run(folder):
         if f != new_filepath:
             os.rename(f"{folder}/{f}", f"{folder}/{new_filepath}")
     cmd = [
-        "sudo", "-u", "www-data",
+        # "sudo", "-u", "www-data",
         "php", "/var/www/html/nextcloud_sacm/occ", "files:scan",
         "--path", folder.replace(f"{root}/", ""),
     ]

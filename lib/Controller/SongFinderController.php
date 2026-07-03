@@ -52,9 +52,9 @@ class SongFinderController extends Controller {
 
         $cmd = sprintf(
             '%s %s --folder %s %s --lock %s > %s 2>&1 &',
-            escapeshellarg('/root/.venv/bin/python'),
+            escapeshellarg('/var/www/html/nextcloud_sacm/apps/song_finder/python/.venv/bin/python'),
             escapeshellarg('/var/www/html/nextcloud_sacm/apps/song_finder/python/main.py'),
-            escapeshellarg($folder),
+            escapeshellarg('sacm.av/files' . $folder),
             escapeshellarg($prefix),
             escapeshellarg($lockFile),
             escapeshellarg($logFile)
