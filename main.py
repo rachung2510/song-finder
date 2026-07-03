@@ -253,11 +253,13 @@ def get_titles(filepath):
         return []
 
 
-def main(prefix):
-    for d in sorted(os.listdir(root)):
-        if not d.startswith(prefix):
-            continue
-        print(f">>>>>>>>>> Processing {d}")
+def main(prefixes):
+    folders = [
+        d for d in sorted(os.listdir(root), reverse=True)
+        if any(d.startswith(prefix) for prefix in prefixes)
+    ]
+    for d in (pbar := tqdm(folders)):
+        pbar.set_description(f"Processing {d}")
         files = sorted(os.listdir(f"{root}/{d}"))
         if any(bool(re.search(r'[\u4e00-\u9fff]', f)) for f in files):  # already renamed
             continue
@@ -289,6 +291,6 @@ def main(prefix):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("prefix", type=str, default="2026-05")
+    parser.add_argument("prefix", nargs="+", type=str)
     args = parser.parse_args()
     main(args.prefix)
