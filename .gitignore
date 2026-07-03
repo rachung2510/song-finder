@@ -2,3 +2,5 @@
 tmp
 .env
 *.wav
+node_modules
+build

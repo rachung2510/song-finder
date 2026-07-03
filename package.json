@@ -1,0 +1,30 @@
+{
+  "name": "song_finder",
+  "description": "Identify song titles from audio recordings",
+  "version": "0.0.1",
+  "author": "rachung2510 <rachung2510@gmail.con>",
+  "contributors": [],
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "NODE_OPTIONS='--max-old-space-size=2048' vite --mode production build",
+    "dev": "NODE_OPTIONS='--max-old-space-size=2048' vite --mode development build",
+    "watch": "NODE_OPTIONS='--max-old-space-size=2048' vite --mode development build --watch"
+  },
+  "dependencies": {
+    "@nextcloud/axios": "^2.5.2",
+    "@nextcloud/dialogs": "^7.3.0",
+    "@nextcloud/files": "^3",
+    "@nextcloud/router": "^3.1.0"
+  },
+  "devDependencies": {
+    "@nextcloud/browserslist-config": "^3.1.2",
+    "@nextcloud/vite-config": "^2.5.2",
+    "typescript": "^6.0.2",
+    "vite": "^7.3.1"
+  },
+  "browserslist": [
+    "extends @nextcloud/browserslist-config"
+  ]
+}

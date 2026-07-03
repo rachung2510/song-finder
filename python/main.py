@@ -10,13 +10,12 @@ import pandas as pd
 import numpy as np
 from pypinyin import lazy_pinyin
 from rapidfuzz import fuzz
-from scipy.optimize import linear_sum_assignment
 from dotenv import load_dotenv
-load_dotenv(".env", override=True)
+load_dotenv(os.path.join(__file__, "..", ".env"), override=True)
 
-root = "/mnt/NextcloudSacmData/sacm.av/files/Recordings"
+root = "/mnt/NextcloudSacmData"
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-df = pd.read_csv("songs.csv")
+df = pd.read_csv(os.path.join(__file__, "songs.csv"))
 
 def get_embedding(text):
     text = re.sub(r"[，。！？、“”：；\n]", " ", text)
@@ -79,15 +78,15 @@ def get_duration(filepath) -> float:
     return float(result.stdout.strip())
 
 
-def match_zoom_to_sq(d, tol=10):
-    files = sorted(os.listdir(f"{root}/{d}"))
+def match_zoom_to_sq(folder, tol=10):
+    files = sorted(os.listdir(folder))
     zoom_files = [f for f in files if strip_prefix(f).startswith("ZOOM")]
     sq_files = [f for f in files if not strip_prefix(f).startswith("ZOOM")]
     
     if not zoom_files or not sq_files:
         return {}
 
-    durations = {f: int(get_duration(f"{root}/{d}/{f}")) for f in files}
+    durations = {f: int(get_duration(f"{folder}/{f}")) for f in files}
 
     reduced_sq_files = []
     for f in sq_files:
@@ -253,44 +252,54 @@ def get_titles(filepath):
         return []
 
 
-def main(prefixes):
-    folders = [
-        d for d in sorted(os.listdir(root), reverse=True)
-        if any(d.startswith(prefix) for prefix in prefixes)
+def run(folder):
+    files = sorted(os.listdir(f"{folder}"))
+    if any(bool(re.search(r'[\u4e00-\u9fff]', f)) for f in files):  # already renamed
+        return
+    zoom_to_sq = match_zoom_to_sq(folder)
+    zoom_files = [f for f in files if strip_prefix(f).startswith("ZOOM")]
+    sq_files = [f for f in files if not strip_prefix(f).startswith("ZOOM")]
+    file_to_titles = {f: get_titles(f"{folder}/{f}") for f in sq_files}
+    for zoom_file in zoom_files:
+        sq_file = zoom_to_sq.get(zoom_file)
+        sq_titles = file_to_titles.get(sq_file, [])
+        titles = sq_titles or get_titles(f"{folder}/{zoom_file}")
+        file_to_titles[zoom_file] = titles
+        if sq_file and not sq_titles and titles:
+            file_to_titles[sq_file] = titles
+    for f, title in file_to_titles.items():
+        filename, ext = os.path.splitext(f)
+        new_filepath = f"{strip_prefix(filename)}_{'_'.join(title)}{ext}" if title else f"{filename}{ext}"
+        print(f"{f}→{new_filepath}")
+        if f != new_filepath:
+            os.rename(f"{folder}/{f}", f"{folder}/{new_filepath}")
+    cmd = [
+        "sudo", "-u", "www-data",
+        "php", "/var/www/html/nextcloud_sacm/occ", "files:scan",
+        "--path", folder.replace(f"{root}/", ""),
     ]
-    for d in (pbar := tqdm(folders)):
-        pbar.set_description(f"Processing {d}")
-        files = sorted(os.listdir(f"{root}/{d}"))
-        if any(bool(re.search(r'[\u4e00-\u9fff]', f)) for f in files):  # already renamed
-            continue
-        zoom_to_sq = match_zoom_to_sq(d)
-        zoom_files = [f for f in files if strip_prefix(f).startswith("ZOOM")]
-        sq_files = [f for f in files if not strip_prefix(f).startswith("ZOOM")]
-        file_to_titles = {f: get_titles(f"{root}/{d}/{f}") for f in sq_files}
-        for zoom_file in zoom_files:
-            sq_file = zoom_to_sq.get(zoom_file)
-            sq_titles = file_to_titles.get(sq_file, [])
-            titles = sq_titles or get_titles(f"{root}/{d}/{zoom_file}")
-            file_to_titles[zoom_file] = titles
-            if sq_file and not sq_titles and titles:
-                file_to_titles[sq_file] = titles
-        for f, title in file_to_titles.items():
-            filename, ext = os.path.splitext(f)
-            new_filepath = f"{strip_prefix(filename)}_{'_'.join(title)}{ext}" if title else f"{filename}{ext}"
-            print(f"{f}→{new_filepath}")
-            if f != new_filepath:
-                os.rename(f"{root}/{d}/{f}", f"{root}/{d}/{new_filepath}")
-        cmd = [
-            "sudo", "-u", "www-data",
-            "php", "/var/www/html/nextcloud_sacm/occ", "files:scan",
-            "--path", f"sacm.av/files/Recordings/{d}",
-        ]
-        subprocess.run(cmd)
+    subprocess.run(cmd)
+
+
+def main(folder, lock_file=""):
+    try:
+        run(folder)
+    finally:
+        if os.path.exists(lock_file):
+            os.remove(lock_file)
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("prefix", nargs="+", type=str)
+    parser.add_argument("--folder", default="sacm.av/files/Recordings")
+    parser.add_argument("prefix", nargs="+")
+    parser.add_argument("--lock", default="")
     args = parser.parse_args()
-    main(args.prefix)
+    prefixes = [
+        d for d in sorted(os.listdir(f"{root}/{args.folder}"), reverse=True)
+        if any(d.startswith(prefix) for prefix in args.prefix)
+    ]
+    for prefix in (pbar := tqdm(prefixes)):
+        pbar.set_description(f"Processing {prefix}")
+        main(f"{root}/{args.folder}/{prefix}", lock_file=args.lock)

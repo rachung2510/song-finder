@@ -4,3 +4,4 @@ openai
 pypinyin
 rapidfuzz
 python-dotenv
+# ipykernel
