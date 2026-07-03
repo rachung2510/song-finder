@@ -1,0 +1,17 @@
+#!/bin/bash
+
+export NCPATH="/var/www/html/nextcloud_sacm"
+export NCDATAPATH="/mnt/NextcloudSacmData"
+export TMPPATH="admin/files/tmp"
+
+get_file_from_id() {
+# $1=id
+# $2=owner
+# return /data/sacm.av/Recordings/YYYY-MM-DD/file.wav
+	file=$(mysql --defaults-extra-file=/etc/mysql/config.cnf -Bse "\
+		USE nextcloud_sacm;\
+		SELECT path FROM oc_filecache WHERE fileid=${1};")
+	echo "$NCDATAPATH/$2/$file"
+}
+
+# vim :set ft=sh :
