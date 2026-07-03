@@ -61,15 +61,22 @@ def best_window_score(query_py, lyrics_py, size=50, step=10):
     return score / 100
 
 
-def get_duration(filepath):
-    duration = float(subprocess.check_output([
-        "ffprobe",
-        "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        filepath,
-    ]).decode().strip())
-    return duration
+def get_duration(filepath) -> float:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            filepath,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"[ERROR] ffprobe failed: {result.stderr}")
+        return 0
+    return float(result.stdout.strip())
 
 
 def match_zoom_to_sq(d, tol=10):
@@ -176,56 +183,74 @@ def split_to_limit(filepath, limit=26_214_400, margin=0.90, out_dir="tmp"):
     return chunk_paths
 
 
+def transcribe(filepath, model="gpt-4o-transcribe"):
+    audio_file = open(filepath, "rb")
+    transcription = client.audio.transcriptions.create(
+        model=model,
+        file=audio_file,
+        language="zh",
+    )
+    return transcription.text
+
+
 def get_titles(filepath):
-    duration = get_duration(filepath)
-    mins, secs = int(duration // 60), int(duration % 60)
-    print(f"Processing {filepath} ({mins:02d}:{secs:02d})")
+    try:
+        duration = get_duration(filepath)
+        mins, secs = int(duration // 60), int(duration % 60)
+        print(f"Processing {filepath} ({mins:02d}:{secs:02d})")
 
-    cropped_paths = split_to_limit(filepath)
-    lyrics = ""
-    for path in tqdm(cropped_paths):
-        if get_duration(path) < 10:
-            continue
-        audio_file = open(path, "rb")
-        transcription = client.audio.transcriptions.create(
-            model="gpt-4o-transcribe",
-            file=audio_file,
-            language="zh",
-        )
-        lyrics += transcription.text
+        cropped_paths = split_to_limit(filepath)
+        lyrics = ""
+        for path in tqdm(cropped_paths):
+            if get_duration(path) < 10:
+                continue
+            cropped_lyrics = transcribe(path, model="gpt-4o-transcribe")
+            if len(cropped_lyrics) < 50:
+                cropped_lyrics = transcribe(path, model="whisper-1")
+            lyrics += cropped_lyrics
 
-    if not lyrics:
-        return []
+        for path in cropped_paths:
+            if path != filepath:
+                os.remove(path)
 
-    titles = {}
-    title_to_last_chunk_idx = {}
+        if not lyrics:
+            return []
 
-    query_lyrics = re.sub(r"[，。！、\n]", " ", lyrics)
+        titles = {}
+        title_to_last_chunk_idx = {}
 
-    chunk_size = 120
-    for i, start in enumerate(range(0, len(query_lyrics), chunk_size)):
-        chunk = query_lyrics[start:start + chunk_size]
-        if len(chunk) < 50:
-            continue
-        query_py = pinyin(chunk)
-        scores = [best_window_score(query_py, lyric_py, size=min(len(chunk), 100), step=5) for lyric_py in df.pinyin]
-        best_idx = np.argmax(scores)
-        best_title = df.iloc[best_idx]["title"]
-        best_score = scores[best_idx]
-        if best_title in titles and (i - title_to_last_chunk_idx.get(best_title, -5)) <= 2:
-            titles[best_title] = max(titles[best_title], best_score) * 1.2
+        query_lyrics = re.sub(r"[，。！、\n]", " ", lyrics)
+
+        chunk_size = 120
+        for i, start in enumerate(range(0, len(query_lyrics), chunk_size)):
+            chunk = query_lyrics[start:start + chunk_size]
+            if len(chunk) < 50:
+                continue
+            query_py = pinyin(chunk)
+            scores = [best_window_score(query_py, lyric_py, size=min(len(chunk), 100), step=5) for lyric_py in df.pinyin]
+            best_idx = np.argmax(scores)
+            best_title = df.iloc[best_idx]["title"]
+            best_score = scores[best_idx]
+            if best_title in titles and (i - title_to_last_chunk_idx.get(best_title, -5)) <= 2:
+                titles[best_title] = max(titles[best_title], best_score) * 1.2
+            else:
+                titles[best_title] = best_score
+            title_to_last_chunk_idx[best_title] = i
+
+        print(f"{titles=}")
+        if not titles:
+            return []
+
+        if duration > 3 * 60:
+            final_titles = [title for title, score in titles.items() if score > 0.7]
         else:
-            titles[best_title] = best_score
-        title_to_last_chunk_idx[best_title] = i
-
-    print(f"{titles=}")
-    if duration > 3 * 60:
-        final_titles = [title for title, score in titles.items() if score > 0.7]
-    else:
-        best_title = max(titles, key=titles.get)
-        final_titles = [best_title] if titles[best_title] > 0.7 else []
-    print(f"Songs: {'_'.join(final_titles)}")
-    return final_titles
+            best_title = max(titles, key=titles.get)
+            final_titles = [best_title] if titles[best_title] > 0.7 else []
+        print(f"Songs: {'_'.join(final_titles)}")
+        return final_titles
+    except Exception as e:
+        print(f"[ERROR] {filepath}: {e}")
+        return []
 
 
 def main(prefix):
