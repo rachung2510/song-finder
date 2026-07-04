@@ -22,10 +22,6 @@ class SongFinderController extends Controller {
         $this->userId = $user ? $user->getUID() : 'unknown';
     }
 
-    private function lockFile(string $path): string {
-        return '/tmp/nextcloud-song-finder-' . md5($this->userId . ':' . $path) . '.lock';
-    }
-
     /**
      * @NoAdminRequired
      * @NoCSRFRequired
@@ -36,7 +32,7 @@ class SongFinderController extends Controller {
             return new JSONResponse(['error' => 'Missing path'], 400);
         }
 
-        $lockFile = $this->lockFile($path);
+        $lockFile = '/tmp/nextcloud-song-finder.lock';
         if (file_exists($lockFile)) {
             return new JSONResponse(['running' => true]);
         }
@@ -48,7 +44,7 @@ class SongFinderController extends Controller {
 
         $folder = substr($path, 0, $lastSlash);
         $prefix = substr($path, $lastSlash + 1);
-        $logFile = '/tmp/nextcloud-song-finder-' . md5($this->userId . ':' . $path) . '.log';
+        $logFile = '/tmp/nextcloud-song-finder.log';
 
         $cmd = sprintf(
             '%s %s --folder %s %s --lock %s > %s 2>&1 &',

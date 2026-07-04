@@ -2,6 +2,7 @@ import { FileAction, registerFileAction, Permission } from '@nextcloud/files'
 import { showSuccess, showInfo, showError } from '@nextcloud/dialogs'
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
+import fs from 'fs'
 
 async function getStatus(path: string): Promise<{ running: boolean }> {
 	const response = await axios.get(generateUrl('/apps/song_finder/status'), {
@@ -36,6 +37,9 @@ registerFileAction(new FileAction({
 	iconSvgInline: () => '<svg viewBox="0 0 20 20" width="20" height="20"><path fill="currentColor" d="M10 2a8 8 0 1 0 0 16a8 8 0 0 0 0-16Zm2 11.5a2 2 0 1 1-1-1.73V6h3v2h-2v5.5Z"/></svg>',
 
 	enabled: (nodes) => {
+		if (fs.existsSync('/tmp/nextcloud-song-finder.lock')) {
+			return false
+		}
 		return nodes.length === 1
 			&& (nodes[0].permissions & Permission.READ) !== 0
 	},
