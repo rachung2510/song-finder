@@ -18111,7 +18111,7 @@ const cancelableClient = getCancelableClient();
 cancelableClient.interceptors.response.use((r2) => r2, onCsrfTokenError(cancelableClient));
 cancelableClient.interceptors.response.use((r2) => r2, onMaintenanceModeError(cancelableClient));
 cancelableClient.interceptors.response.use((r2) => r2, onNotLoggedInError);
-var empty = null;
+const runningPaths = /* @__PURE__ */ new Set();
 async function getStatus(path) {
   const response = await cancelableClient.get(generateUrl("/apps/song_finder/status"), {
     params: { path }
@@ -18123,14 +18123,17 @@ function watchJob(path) {
     try {
       const status = await getStatus(path);
       if (status.running) {
-        const prefix = path.split("/").pop();
-        showInfo(`Identifying songs in ${prefix}...`);
+        runningPaths.add(path);
+        const name = path.split("/").pop() || path;
+        showInfo(`Identifying songs in ${name}...`);
       } else {
         window.clearInterval(timer);
+        runningPaths.delete(path);
         showSuccess("Song identification done");
       }
     } catch (e2) {
       window.clearInterval(timer);
+      runningPaths.delete(path);
       showError("Could not check status");
       console.error(e2);
     }
@@ -18141,19 +18144,34 @@ registerFileAction(new FileAction({
   displayName: () => "Identify songs",
   iconSvgInline: () => '<svg viewBox="0 0 20 20" width="20" height="20"><path fill="currentColor" d="M10 2a8 8 0 1 0 0 16a8 8 0 0 0 0-16Zm2 11.5a2 2 0 1 1-1-1.73V6h3v2h-2v5.5Z"/></svg>',
   enabled: (nodes) => {
-    if (empty.existsSync("/tmp/nextcloud-song-finder.lock")) {
+    if (nodes.length !== 1) {
       return false;
     }
-    return nodes.length === 1 && (nodes[0].permissions & Permission.READ) !== 0;
+    const node = nodes[0];
+    const path = node.path;
+    if (runningPaths.has(path)) {
+      return false;
+    }
+    return (node.permissions & Permission.READ) !== 0;
   },
   exec: async (node) => {
+    const path = node.path;
     try {
+      const status = await getStatus(path);
+      if (status.running) {
+        runningPaths.add(path);
+        showInfo("Song Finder is already processing this item");
+        watchJob(path);
+        return false;
+      }
+      runningPaths.add(path);
       await cancelableClient.post(generateUrl("/apps/song_finder/start"), {
-        path: node.path
+        path
       });
-      watchJob(node.path);
+      watchJob(path);
       return true;
     } catch (e2) {
+      runningPaths.delete(path);
       console.error(e2);
       return false;
     }
