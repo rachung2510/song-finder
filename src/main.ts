@@ -37,7 +37,6 @@ registerFileAction(new FileAction({
 
 	enabled: (nodes) => {
 		return nodes.length === 1
-			&& nodes[0].type === 'folder'
 			&& (nodes[0].permissions & Permission.READ) !== 0
 	},
 

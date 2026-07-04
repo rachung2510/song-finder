@@ -192,6 +192,14 @@ def transcribe(filepath, model="gpt-4o-transcribe"):
     return transcription.text
 
 
+def cmd(filepath):
+    return [
+        # "sudo", "-u", "www-data",
+        "php", "/var/www/html/nextcloud_sacm/occ", "files:scan",
+        "--path", filepath.replace(f"{root}/", ""),
+    ]
+
+
 def get_titles(filepath):
     try:
         duration = get_duration(filepath)
@@ -273,17 +281,29 @@ def run(folder):
         print(f"{f}→{new_filepath}")
         if f != new_filepath:
             os.rename(f"{folder}/{f}", f"{folder}/{new_filepath}")
-    cmd = [
-        # "sudo", "-u", "www-data",
-        "php", "/var/www/html/nextcloud_sacm/occ", "files:scan",
-        "--path", folder.replace(f"{root}/", ""),
-    ]
-    subprocess.run(cmd)
+    subprocess.run(cmd(folder))
 
 
-def main(folder, lock_file=""):
+def run_single(filepath):
+    titles = get_titles(filepath)
+    filename, ext = os.path.splitext(os.path.basename(filepath))
+    folder = os.path.dirname(filepath)
+    new_filepath = f"{strip_prefix(filename)}_{'_'.join(titles)}{ext}" if titles else f"{filename}{ext}"
+    print(f"{filepath}→{new_filepath}")
+    if filepath == new_filepath:
+        return
+    os.rename(filepath, f"{folder}/{new_filepath}")
+    subprocess.run(cmd(filepath))
+
+
+def main(filepath, lock_file=""):
     try:
-        run(folder)
+        if os.path.isfile(filepath):
+            run_single(filepath)
+        elif os.path.isdir(filepath):
+            run(filepath)
+        else:
+            print(f"[ERROR] Invalid filepath {filepath}")
     finally:
         if os.path.exists(lock_file):
             os.remove(lock_file)
@@ -296,10 +316,6 @@ if __name__ == "__main__":
     parser.add_argument("prefix", nargs="+")
     parser.add_argument("--lock", default="")
     args = parser.parse_args()
-    prefixes = [
-        d for d in sorted(os.listdir(f"{root}/{args.folder}"), reverse=True)
-        if any(d.startswith(prefix) for prefix in args.prefix)
-    ]
-    for prefix in (pbar := tqdm(prefixes)):
+    for prefix in (pbar := tqdm(args.prefix)):
         pbar.set_description(f"Processing {prefix}")
         main(f"{root}/{args.folder}/{prefix}", lock_file=args.lock)
