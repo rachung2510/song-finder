@@ -16,14 +16,15 @@ function watchJob(path: string): void {
 			const status = await getStatus(path)
 
 			if (status.running) {
-				showInfo(`Identifying songs for ${path}...`)
+				const prefix = path.split("/").pop();
+				showInfo(`Identifying songs in ${prefix}...`)
 			} else {
 				window.clearInterval(timer)
-				showSuccess('Song identificaton complete')
+				showSuccess('Song identification done')
 			}
 		} catch (e) {
 			window.clearInterval(timer)
-			showError('Could not check Song Finder status')
+			showError('Could not check status')
 			console.error(e)
 		}
 	}, 10000)
