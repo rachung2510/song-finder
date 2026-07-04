@@ -9,7 +9,7 @@
   "type": "module",
   "scripts": {
     "build": "NODE_OPTIONS='--max-old-space-size=2048' vite --mode production build",
-    "dev": "NODE_OPTIONS='--max-old-space-size=2048' vite --mode development build",
+    "dev": "vite --mode development build",
     "watch": "NODE_OPTIONS='--max-old-space-size=2048' vite --mode development build --watch"
   },
   "dependencies": {
