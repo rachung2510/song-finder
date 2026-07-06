@@ -124,6 +124,21 @@ function ensureObserver(): void {
 	observer.observe(document.body, { childList: true, subtree: true })
 }
 
+let heartbeat: number | undefined
+function ensureHeartbeat(): void {
+	if (heartbeat !== undefined) {
+		return
+	}
+	heartbeat = window.setInterval(() => {
+		if (jobs.size === 0) {
+			window.clearInterval(heartbeat)
+			heartbeat = undefined
+			return
+		}
+		scheduleRender()
+	}, 1500)
+}
+
 function finishJob(job: Job): void {
 	job.state = 'done'
 	runningPaths.delete(job.path)
@@ -178,6 +193,7 @@ function startTracking(node: Node, path: string): Job {
 	runningPaths.add(path)
 	injectStyles()
 	ensureObserver()
+	ensureHeartbeat()
 	scheduleRender()
 	watchJob(job, path)
 	return job
@@ -205,6 +221,7 @@ registerFileAction(new FileAction({
 			const status = await getStatus(path)
 			if (status.running) {
 				ensureObserver()
+				ensureHeartbeat()
 				scheduleRender()
 				showWarning('Please wait until the ongoing process is completed.')
 				return null
