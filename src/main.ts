@@ -120,12 +120,8 @@ function ensureObserver(): void {
 	if (observer) {
 		return
 	}
-	const container =
-		document.querySelector('[data-cy-files-list]') ??
-		document.querySelector('.files-list') ??
-		document.body
 	observer = new MutationObserver(() => scheduleRender())
-	observer.observe(container, { childList: true, subtree: true })
+	observer.observe(document.body, { childList: true, subtree: true })
 }
 
 function finishJob(job: Job): void {
@@ -208,6 +204,8 @@ registerFileAction(new FileAction({
 		try {
 			const status = await getStatus(path)
 			if (status.running) {
+				ensureObserver()
+				scheduleRender()
 				showWarning('Please wait until the ongoing process is completed.')
 				return null
 			}
