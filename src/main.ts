@@ -24,8 +24,7 @@ const jobs = new Map<number, Job>()
 
 const runningPaths = new Set<string>()
 
-const SPINNER_SVG =
-	'<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2a10 10 0 0 1 10 10h-3a7 7 0 0 0-7-7V2Z"/></svg>'
+const RUNNING_TEXT = 'Identifying songs…'
 const CHECK_SVG =
 	'<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>'
 
@@ -48,15 +47,11 @@ function injectStyles(): void {
 			opacity: 0;
 		}
 		.${BADGE_CLASS}[data-state="running"] {
-			color: var(--color-primary-element, #0082c9);
-			animation: song-finder-spin 1s linear infinite;
+			font-style: italic;
+			color: var(--color-text-maxcontrast, #767676);
 		}
 		.${BADGE_CLASS}[data-state="done"] {
 			color: var(--color-success, #46ba61);
-		}
-		@keyframes song-finder-spin {
-			from { transform: rotate(0deg); }
-			to { transform: rotate(360deg); }
 		}
 	`
 	document.head.appendChild(style)
@@ -109,11 +104,13 @@ function renderBadges(): void {
 		}
 		if (badge.dataset.state !== job.state) {
 			badge.dataset.state = job.state
-			badge.innerHTML = job.state === 'running' ? SPINNER_SVG : CHECK_SVG
-			badge.title =
-				job.state === 'running'
-					? `Identifying songs in ${job.name}…`
-					: 'Song identification done'
+			if (job.state === 'running') {
+				badge.textContent = RUNNING_TEXT
+				badge.title = `Identifying songs in ${job.name}…`
+			} else {
+				badge.innerHTML = CHECK_SVG
+				badge.title = 'Song identification done'
+			}
 		}
 	}
 }
