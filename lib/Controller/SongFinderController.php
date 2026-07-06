@@ -9,6 +9,10 @@ use OCP\IRequest;
 use OCP\IUserSession;
 
 class SongFinderController extends Controller {
+
+	public const LOCK_FILE = '/tmp/nextcloud-song-finder.lock';
+	public const LOG_FILE = '/tmp/nextcloud-song-finder.log';
+
     private string $userId;
 
     public function __construct(
@@ -32,8 +36,7 @@ class SongFinderController extends Controller {
             return new JSONResponse(['error' => 'Missing path'], 400);
         }
 
-        $lockFile = '/tmp/nextcloud-song-finder.lock';
-        if (file_exists($lockFile)) {
+        if (file_exists(self::LOCK_FILE)) {
             return new JSONResponse(['running' => true]);
         }
 
@@ -44,7 +47,6 @@ class SongFinderController extends Controller {
 
         $folder = substr($path, 0, $lastSlash);
         $prefix = substr($path, $lastSlash + 1);
-        $logFile = '/tmp/nextcloud-song-finder.log';
 
         $cmd = sprintf(
             '%s %s --folder %s %s --lock %s > %s 2>&1 &',
@@ -52,10 +54,10 @@ class SongFinderController extends Controller {
             escapeshellarg('/var/www/html/nextcloud_sacm/apps/song_finder/python/main.py'),
             escapeshellarg('sacm.av/files' . $folder),
             escapeshellarg($prefix),
-            escapeshellarg($lockFile),
-            escapeshellarg($logFile)
+            escapeshellarg(self::LOCK_FILE),
+            escapeshellarg(self::LOG_FILE)
         );
-        touch($lockFile);
+        touch(self::LOCK_FILE);
         shell_exec($cmd);
 
         return new JSONResponse(['running' => true]);
@@ -72,7 +74,7 @@ class SongFinderController extends Controller {
         }
 
         return new JSONResponse([
-            'running' => file_exists($this->lockFile($path)),
+            'running' => file_exists(self::LOCK_FILE),
         ]);
     }
 }
