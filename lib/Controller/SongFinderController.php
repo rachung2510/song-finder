@@ -67,12 +67,8 @@ class SongFinderController extends Controller {
      * @NoAdminRequired
      */
     public function status(): JSONResponse {
-        $path = $this->request->getParam('path');
-
-        if (!$path) {
-            return new JSONResponse(['error' => 'Missing path'], 400);
-        }
-
+        // Only one job runs at a time, guarded by a single global lock file,
+        // so the running state is not path-specific.
         return new JSONResponse([
             'running' => file_exists(self::LOCK_FILE),
         ]);
