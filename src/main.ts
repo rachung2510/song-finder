@@ -1,5 +1,5 @@
 import { FileAction, registerFileAction, Permission, type Node } from '@nextcloud/files'
-import { showError } from '@nextcloud/dialogs'
+import { showError, showWarning } from '@nextcloud/dialogs'
 import axios from '@nextcloud/axios'
 import { generateUrl } from '@nextcloud/router'
 
@@ -208,9 +208,8 @@ registerFileAction(new FileAction({
 		try {
 			const status = await getStatus(path)
 			if (status.running) {
-				// A job (possibly for another file) is already using the single lock.
-				startTracking(node, path)
-				return false
+				showWarning('Please wait until the ongoing process is completed.')
+				return null
 			}
 			await axios.post(generateUrl('/apps/song_finder/start'), { path })
 			startTracking(node, path)

@@ -14779,6 +14779,13 @@ function showError(text2, options) {
     /* ERROR */
   });
 }
+function showWarning(text2, options) {
+  return showMessage(text2, {
+    ...options,
+    type: "toast-warning"
+    /* WARNING */
+  });
+}
 function bind(fn, thisArg) {
   return function wrap() {
     return fn.apply(thisArg, arguments);
@@ -18263,8 +18270,8 @@ registerFileAction(new FileAction({
     try {
       const status = await getStatus(path);
       if (status.running) {
-        startTracking(node, path);
-        return false;
+        showWarning("Please wait until the ongoing process is completed.");
+        return null;
       }
       await cancelableClient.post(generateUrl("/apps/song_finder/start"), { path });
       startTracking(node, path);
