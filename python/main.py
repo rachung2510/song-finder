@@ -183,12 +183,12 @@ def split_to_limit(filepath, limit=26_214_400, margin=0.90, out_dir="tmp"):
 
 
 def transcribe(filepath, model="gpt-4o-transcribe"):
-    audio_file = open(filepath, "rb")
-    transcription = client.audio.transcriptions.create(
-        model=model,
-        file=audio_file,
-        language="zh",
-    )
+    with open(filepath, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model=model,
+            file=audio_file,
+            language="zh",
+        )
     return transcription.text
 
 
