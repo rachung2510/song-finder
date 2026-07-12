@@ -211,10 +211,9 @@ def get_titles(filepath):
         for path in tqdm(cropped_paths):
             if get_duration(path) < 10:
                 continue
-            cropped_lyrics = transcribe(path, model="gpt-4o-transcribe")
-            if len(cropped_lyrics) < 50:
-                cropped_lyrics = transcribe(path, model="whisper-1")
+            cropped_lyrics = transcribe(path, model="whisper-1")
             lyrics += cropped_lyrics
+        print(len(lyrics), lyrics)
 
         for path in cropped_paths:
             if path != filepath:
