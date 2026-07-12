@@ -238,10 +238,11 @@ def get_titles(filepath):
             best_idx = np.argmax(scores)
             best_title = df.iloc[best_idx]["title"]
             best_score = scores[best_idx]
-            if best_title in titles and (i - title_to_last_chunk_idx.get(best_title, -5)) <= 2:
-                titles[best_title] = max(titles[best_title], best_score) * 1.2
-            else:
+            if best_title not in titles:
                 titles[best_title] = best_score
+            else:
+                boost = (i - title_to_last_chunk_idx.get(best_title, -5)) <= 2
+                titles[best_title] = max(titles[best_title], best_score) * (1.2 if boost else 1)
             title_to_last_chunk_idx[best_title] = i
 
         print(f"{titles=}")
