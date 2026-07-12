@@ -192,11 +192,11 @@ def transcribe(filepath, model="gpt-4o-transcribe"):
     return transcription.text
 
 
-def cmd(filepath):
+def cmd(folder):
     return [
         # "sudo", "-u", "www-data",
         "php", "/var/www/html/nextcloud_sacm/occ", "files:scan",
-        "--path", filepath.replace(f"{root}/", ""),
+        "--path", folder.replace(f"{root}/", ""),
     ]
 
 
@@ -293,20 +293,7 @@ def run_single(filepath):
     if filepath == new_filepath:
         return
     os.rename(filepath, f"{folder}/{new_filepath}")
-    subprocess.run(cmd(filepath))
-
-
-def main(filepath, lock_file=""):
-    try:
-        if os.path.isfile(filepath):
-            run_single(filepath)
-        elif os.path.isdir(filepath):
-            run(filepath)
-        else:
-            print(f"[ERROR] Invalid filepath {filepath}")
-    finally:
-        if os.path.exists(lock_file):
-            os.remove(lock_file)
+    subprocess.run(cmd(folder))
 
 
 if __name__ == "__main__":
@@ -316,6 +303,21 @@ if __name__ == "__main__":
     parser.add_argument("prefix", nargs="+")
     parser.add_argument("--lock", default="")
     args = parser.parse_args()
-    for prefix in (pbar := tqdm(args.prefix)):
-        pbar.set_description(f"Processing {prefix}")
-        main(f"{root}/{args.folder}/{prefix}", lock_file=args.lock)
+    try:
+        all_prefixes = []
+        for prefix in args.prefix:
+            if os.path.isfile(filepath := f"{root}/{args.folder}/{prefix}"):
+                all_prefixes.append(prefix)
+                continue
+            all_prefixes.extend([d for d in os.listdir(f"{root}/{args.folder}") if d.startswith(prefix)])
+        for prefix in (pbar := tqdm(sorted(all_prefixes, reverse=True))):
+            if os.path.isfile(filepath := f"{root}/{args.folder}/{prefix}"):
+                run_single(filepath)
+                continue
+            pbar.set_description(f"Processing {prefix}")
+            run(f"{root}/{args.folder}/{prefix}")
+    except Exception as e:
+        print(f"[ERROR] {e}")
+    finally:
+        if os.path.exists(lock_file := args.lock):
+            os.remove(lock_file)
