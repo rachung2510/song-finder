@@ -152,14 +152,25 @@ def match_zoom_to_sq(folder, tol=10):
     return prune_same_values(matches)
 
 
-def split_to_limit(filepath, limit=26_214_400, margin=0.90, out_dir="tmp"):
+def split_to_limit(
+    filepath: str,
+    max_seconds: int = -1,
+    max_size: int = 26_214_400,
+    limit: int = 1500, # seconds, 26_214_400 * 0.90 buffer * 8 / (128 kbps * 1000)
+    out_dir: str = "tmp",
+):
     size = os.path.getsize(filepath)
-    if size <= limit:
+    bitrate_kbps = 128
+    if max_seconds > 0:
+        max_size = max_seconds * bitrate_kbps * 1000 / 8
+    else:
+        max_seconds = max_size * 0.90 * 8 / (bitrate_kbps * 1000)
+    if size <= max_size:
         return [filepath]
+
     os.makedirs(out_dir, exist_ok=True)
     duration = get_duration(filepath)
-    bitrate_kbps = 128
-    chunk_seconds = max(1, int(limit * margin * 8 / (bitrate_kbps * 1000)))
+    chunk_seconds = max_seconds
     chunk_paths = []
     
     for start in range(0, math.ceil(duration), chunk_seconds):
@@ -241,7 +252,7 @@ def get_titles(filepath):
         mins, secs = int(duration // 60), int(duration % 60)
         print(f"Processing {filepath} ({mins:02d}:{secs:02d})")
 
-        cropped_paths = split_to_limit(filepath)
+        cropped_paths = split_to_limit(filepath, max_seconds=300)
         lyrics = ""
         for path in tqdm(cropped_paths):
             if get_duration(path) < 10:
