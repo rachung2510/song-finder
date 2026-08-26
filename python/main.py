@@ -4,8 +4,10 @@ from uuid import uuid4 as uuid
 import subprocess
 import re
 from tqdm import tqdm
+from typing import Literal
 
 from openai import OpenAI
+import dashscope
 import pandas as pd
 import numpy as np
 from pypinyin import lazy_pinyin
@@ -14,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"), override=True)
 
 root = "/mnt/NextcloudSacmData"
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = None
 df = pd.read_csv(os.path.join(os.path.dirname(__file__), "songs.csv"))
 
 def get_embedding(text):
@@ -182,14 +184,47 @@ def split_to_limit(filepath, limit=26_214_400, margin=0.90, out_dir="tmp"):
     return chunk_paths
 
 
-def transcribe(filepath, model="gpt-4o-transcribe"):
-    with open(filepath, "rb") as audio_file:
-        transcription = client.audio.transcriptions.create(
+def transcribe(
+    filepath: str,
+    model: Literal["gpt-4o-transcribe", "whisper-1", "qwen3-asr-flash", "qwen-audio-3.0-asr-flash"] = "whisper-1",
+) -> str:
+    global client
+    if model.startswith("gpt") or model.startswith("whisper"):
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        with open(filepath, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model=model,
+                file=audio_file,
+                language="zh",
+            )
+        return transcription.text
+    if model.startswith("qwen"):
+        dashscope.base_http_api_url = ("https://dashscope-intl.aliyuncs.com/api/v1")
+        kwargs = {}
+        parse = lambda resp: resp
+        if model == "qwen3-asr-flash":
+            kwargs["asr_option"] = {
+                "language": "zh",
+                "enable_itn": False,
+            }
+            parse = lambda resp: resp.output.choices[0].message.content[0]["text"]
+        elif model == "qwen-audio-3.0-asr-flash":
+            kwargs["format"] = "mp3"
+            parse = lambda resp: resp.output.text
+        response = dashscope.MultiModalConversation.call(
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
             model=model,
-            file=audio_file,
-            language="zh",
+            messages=[{
+                "role": "user",
+                "content": [{"audio": f"file://{os.path.abspath(filepath)}"}],
+            }],
+            result_format="message",
+            **kwargs,
         )
-    return transcription.text
+        if not response.output:
+            print(response)
+        return parse(response)
+    raise ValueError("Invalid STT model.")
 
 
 def cmd(folder):
@@ -211,7 +246,7 @@ def get_titles(filepath):
         for path in tqdm(cropped_paths):
             if get_duration(path) < 10:
                 continue
-            cropped_lyrics = transcribe(path, model="whisper-1")
+            cropped_lyrics = transcribe(path, model="qwen-audio-3.0-asr-flash")
             lyrics += cropped_lyrics
         print(len(lyrics), lyrics)
 
@@ -278,7 +313,7 @@ def run(folder):
     for f, title in file_to_titles.items():
         filename, ext = os.path.splitext(f)
         new_filepath = f"{strip_prefix(filename)}_{'_'.join(title)}{ext}" if title else f"{filename}{ext}"
-        print(f"{f}→{new_filepath}")
+        print(f"{f} → {new_filepath}")
         if f != new_filepath:
             os.rename(f"{folder}/{f}", f"{folder}/{new_filepath}")
     subprocess.run(cmd(folder))

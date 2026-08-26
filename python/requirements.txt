@@ -4,4 +4,5 @@ openai
 pypinyin
 rapidfuzz
 python-dotenv
+dashscope
 # ipykernel
