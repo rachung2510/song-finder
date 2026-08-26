@@ -43,6 +43,10 @@ def strip_prefix(s):
     return re.sub(r'^\([^)]*\)\s*', '', s)
 
 
+def has_ascii(s: str) -> bool:
+    return bool(re.search(r'[\u4e00-\u9fff]', s))
+
+
 def windows(tokens, size, step):
     if len(tokens) <= size:
         yield " ".join(tokens)
@@ -246,7 +250,10 @@ def cmd(folder):
     ]
 
 
-def get_titles(filepath):
+def get_titles(filepath: str, force: bool = False) -> list[str]:
+    filename, _ = os.path.splitext(os.path.basename(filepath))
+    if not force and has_ascii(filename):
+        return [t for t in filename.split("_") if has_ascii(t)]
     try:
         duration = get_duration(filepath)
         mins, secs = int(duration // 60), int(duration % 60)
@@ -308,8 +315,6 @@ def get_titles(filepath):
 
 def run(folder):
     files = sorted(os.listdir(folder))
-    if any(bool(re.search(r'[\u4e00-\u9fff]', f)) for f in files):  # already renamed
-        return
     zoom_to_sq = match_zoom_to_sq(folder)
     zoom_files = [f for f in files if strip_prefix(f).startswith("ZOOM")]
     sq_files = [f for f in files if not strip_prefix(f).startswith("ZOOM")]
@@ -323,6 +328,8 @@ def run(folder):
             file_to_titles[sq_file] = titles
     for f, title in file_to_titles.items():
         filename, ext = os.path.splitext(f)
+        if has_ascii(filename):
+            filename = "_".join([t for t in filename.split("_") if not has_ascii(t)])
         new_filepath = f"{strip_prefix(filename)}_{'_'.join(title)}{ext}" if title else f"{filename}{ext}"
         print(f"{f} → {new_filepath}")
         if f != new_filepath:
@@ -331,8 +338,10 @@ def run(folder):
 
 
 def run_single(filepath):
-    titles = get_titles(filepath)
+    titles = get_titles(filepath, force=True)  # re-identify
     filename, ext = os.path.splitext(os.path.basename(filepath))
+    if has_ascii(filename):
+        filename = "_".join([t for t in filename.split("_") if not has_ascii(t)])
     folder = os.path.dirname(filepath)
     new_filepath = f"{strip_prefix(filename)}_{'_'.join(titles)}{ext}" if titles else f"{filename}{ext}"
     print(f"{filepath}→{new_filepath}")
